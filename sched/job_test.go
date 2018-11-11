@@ -107,3 +107,27 @@ func TestJob_Cancel(t *testing.T) {
 	j.WG()
 	t.Logf("job canceled")
 }
+
+func TestJob_Stop(t *testing.T) {
+
+	f := func(ctx context.Context) error {
+		t.Logf("job do")
+		select {
+		case <-time.NewTimer(time.Millisecond * 200).C:
+			t.Logf("func done by time")
+		case <-ctx.Done():
+			t.Fatalf("func done by ctx, err - %v", ctx.Err())
+		}
+		return nil
+	}
+
+	j := NewJob("id", 250, 250, 0, f)
+
+	j.Start(context.Background())
+	go func() {
+		time.Sleep(time.Microsecond * 100)
+		j.Stop()
+	}()
+	j.WG()
+	t.Logf("job canceled")
+}

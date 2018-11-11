@@ -67,7 +67,7 @@ func (j *Job) Start(ctx context.Context) {
 	go j.run()
 }
 
-// Stop stops execution of job
+// Stop stops execution of job (finished current cycle)
 func (j *Job) Stop() {
 	j.stateMux.Lock()
 	defer j.stateMux.Unlock()
@@ -78,7 +78,7 @@ func (j *Job) Stop() {
 	j.isStarted = false
 }
 
-// Cancel breaks execution of job
+// Cancel breaks execution of job (break current cycle)
 func (j *Job) Cancel() {
 	j.stateMux.Lock()
 	defer j.stateMux.Unlock()
