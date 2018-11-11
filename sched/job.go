@@ -3,6 +3,7 @@ package sched
 import (
 	"context"
 	"log"
+	"sync"
 	"time"
 )
 
@@ -11,7 +12,7 @@ type Job struct {
 	// unique identifier of job
 	id string
 
-	// job time parameters (in sec)
+	// job time parameters (in millisecond)
 	// job restart cycle
 	period int
 	// job running timeout
@@ -19,6 +20,12 @@ type Job struct {
 	// job first start delay
 	startDelay int
 
+	// state mutex
+	stateMux  sync.Mutex
+	isStarted bool
+	isRun     bool
+	// stop signal
+	stop chan struct{}
 	// context of job
 	ctx       context.Context
 	ctxCancel context.CancelFunc
@@ -28,45 +35,70 @@ type Job struct {
 }
 
 // NewJob inits new job
-func NewJob(ctx context.Context, id string, period, timeout, delay int, do func(context.Context) error) *Job {
-	ctx, cancel := context.WithCancel(ctx)
+func NewJob(id string, period, timeout, delay int, do func(context.Context) error) *Job {
 	j := &Job{
 		id:         id,
 		period:     period,
 		timeout:    timeout,
 		startDelay: delay,
-		ctx:        ctx,
-		ctxCancel:  cancel,
+		stop:       make(chan struct{}, 1),
 		do:         do,
 	}
 	return j
 }
 
 // Start starts job
-func (j *Job) Start() {
-
+func (j *Job) Start(ctx context.Context) {
+	j.stateMux.Lock()
+	defer j.stateMux.Unlock()
+	if j.isStarted {
+		return
+	}
+	j.isStarted = true
+	j.ctx, j.ctxCancel = context.WithCancel(ctx)
 	go j.run()
 }
 
-// Stop breaks execution of job
+// Stop stops execution of job
 func (j *Job) Stop() {
+	j.stateMux.Lock()
+	defer j.stateMux.Unlock()
+	if !j.isStarted {
+		return
+	}
+	j.stop <- struct{}{}
+	j.isStarted = false
+}
+
+// Cancel breaks execution of job
+func (j *Job) Cancel() {
+	j.stateMux.Lock()
+	defer j.stateMux.Unlock()
+	if !j.isStarted {
+		return
+	}
 	j.ctxCancel()
+	j.isStarted = false
 }
 
 //
 func (j *Job) run() {
 
 	// delay running
-	dlTm := time.NewTimer(time.Second * time.Duration(j.startDelay))
+	dlTm := time.NewTimer(time.Millisecond * time.Duration(j.startDelay))
 	defer dlTm.Stop()
 	select {
 	case <-j.ctx.Done():
+		return
+	case <-j.stop:
+		j.ctxCancel()
 		return
 	case <-dlTm.C:
 	}
 
 	// periodic run func, canceled by timeout
 	do := func() {
+		log.Printf("job - %v, start", j.id)
 		var (
 			ctx    context.Context
 			cancel context.CancelFunc
@@ -74,7 +106,7 @@ func (j *Job) run() {
 		if j.timeout == 0 {
 			ctx, cancel = context.WithCancel(j.ctx)
 		} else {
-			ctx, cancel = context.WithTimeout(j.ctx, time.Second*time.Duration(j.timeout))
+			ctx, cancel = context.WithTimeout(j.ctx, time.Millisecond*time.Duration(j.timeout))
 		}
 		defer cancel()
 
@@ -86,17 +118,19 @@ func (j *Job) run() {
 	}
 
 	// periodic run
-	tk := time.NewTicker(time.Second * time.Duration(j.period))
+	tk := time.NewTicker(time.Millisecond * time.Duration(j.period))
 	defer tk.Stop()
 
 	do()
 	for {
 		select {
 		case <-tk.C:
-			log.Printf("job - %v, start", j.id)
 			do()
 			continue
 		case <-j.ctx.Done():
+			return
+		case <-j.stop:
+			j.ctxCancel()
 			return
 		}
 	}
