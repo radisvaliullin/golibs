@@ -33,6 +33,7 @@ type Job struct {
 	// wait group
 	wg sync.WaitGroup
 	// context of job
+	baseCtx   context.Context
 	ctx       context.Context
 	ctxCancel context.CancelFunc
 
@@ -41,13 +42,14 @@ type Job struct {
 }
 
 // NewJob inits new job
-func NewJob(id string, period, timeout, delay int, do func(context.Context) error) *Job {
+func NewJob(ctx context.Context, id string, period, timeout, delay int, do func(context.Context) error) *Job {
 	j := &Job{
 		id:         id,
 		period:     period,
 		timeout:    timeout,
 		startDelay: delay,
 		stop:       make(chan struct{}, 1),
+		baseCtx:    ctx,
 		do:         do,
 	}
 	return j
@@ -62,7 +64,13 @@ func (j *Job) Start(ctx context.Context) {
 	}
 	j.isStarted = true
 	// don't forget call cancel
-	j.ctx, j.ctxCancel = context.WithCancel(ctx)
+	if ctx != nil {
+		j.ctx, j.ctxCancel = context.WithCancel(ctx)
+	} else if j.baseCtx != nil {
+		j.ctx, j.ctxCancel = context.WithCancel(j.baseCtx)
+	} else {
+		j.ctx, j.ctxCancel = context.WithCancel(context.Background())
+	}
 	j.wg.Add(1)
 	go j.run()
 }

@@ -17,8 +17,8 @@ func TestJob_PeriodRun(t *testing.T) {
 		return nil
 	}
 
-	j := NewJob("id", 100, 100, 0, f)
-	j.Start(context.Background())
+	j := NewJob(context.Background(), "id", 100, 100, 0, f)
+	j.Start(nil)
 
 	send <- struct{}{}
 	tm0 := time.NewTimer(time.Millisecond * 150)
@@ -49,8 +49,8 @@ func TestJob_DelayRun(t *testing.T) {
 		return nil
 	}
 
-	j0 := NewJob("id0", 100, 100, 0, f0)
-	j0.Start(context.Background())
+	j0 := NewJob(context.Background(), "id0", 100, 100, 0, f0)
+	j0.Start(nil)
 
 	send0 <- struct{}{}
 	tm0 := time.NewTimer(time.Millisecond * 150)
@@ -70,8 +70,8 @@ func TestJob_DelayRun(t *testing.T) {
 		return nil
 	}
 
-	j1 := NewJob("id1", 150, 150, 150, f1)
-	j1.Start(context.Background())
+	j1 := NewJob(context.Background(), "id1", 150, 150, 150, f1)
+	j1.Start(nil)
 
 	send1 <- struct{}{}
 	tm1 := time.NewTimer(time.Millisecond * 100)
@@ -97,9 +97,9 @@ func TestJob_Cancel(t *testing.T) {
 		return nil
 	}
 
-	j := NewJob("id", 100, 100, 0, f)
+	j := NewJob(context.Background(), "id", 100, 100, 0, f)
+	j.Start(nil)
 
-	j.Start(context.Background())
 	go func() {
 		time.Sleep(time.Microsecond * 100)
 		j.Cancel()
@@ -121,9 +121,9 @@ func TestJob_Stop(t *testing.T) {
 		return nil
 	}
 
-	j := NewJob("id", 250, 250, 0, f)
+	j := NewJob(context.Background(), "id", 250, 250, 0, f)
+	j.Start(nil)
 
-	j.Start(context.Background())
 	go func() {
 		time.Sleep(time.Microsecond * 100)
 		j.Stop()
