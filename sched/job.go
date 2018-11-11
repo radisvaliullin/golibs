@@ -6,7 +6,7 @@ import (
 	"time"
 )
 
-// Job is schedule job
+// Job is handler of job by schedule
 type Job struct {
 	// unique identifier of job
 	id string
@@ -27,12 +27,12 @@ type Job struct {
 	do func(context.Context) error
 }
 
-// NewJob -
-func NewJob(ctx context.Context, n string, per, timeout, delay int, do func(context.Context) error) *Job {
+// NewJob inits new job
+func NewJob(ctx context.Context, id string, period, timeout, delay int, do func(context.Context) error) *Job {
 	ctx, cancel := context.WithCancel(ctx)
 	j := &Job{
-		id:         n,
-		period:     per,
+		id:         id,
+		period:     period,
 		timeout:    timeout,
 		startDelay: delay,
 		ctx:        ctx,
@@ -42,25 +42,30 @@ func NewJob(ctx context.Context, n string, per, timeout, delay int, do func(cont
 	return j
 }
 
-// Start -
+// Start starts job
 func (j *Job) Start() {
 
 	go j.run()
+}
+
+// Stop breaks execution of job
+func (j *Job) Stop() {
+	j.ctxCancel()
 }
 
 //
 func (j *Job) run() {
 
 	// delay running
-	dlTk := time.NewTicker(time.Second * time.Duration(j.startDelay))
-	defer dlTk.Stop()
+	dlTm := time.NewTimer(time.Second * time.Duration(j.startDelay))
+	defer dlTm.Stop()
 	select {
 	case <-j.ctx.Done():
 		return
-	case <-dlTk.C:
+	case <-dlTm.C:
 	}
 
-	// periodic run func
+	// periodic run func, canceled by timeout
 	do := func() {
 		var (
 			ctx    context.Context
