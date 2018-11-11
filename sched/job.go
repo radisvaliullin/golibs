@@ -21,11 +21,17 @@ type Job struct {
 	startDelay int
 
 	// state mutex
-	stateMux  sync.Mutex
+	stateMux sync.Mutex
+	// start/stop trigger
 	isStarted bool
-	isRun     bool
+	// handler statuse
+	isRun bool
+	// job active statuse
+	isDo bool
 	// stop signal
 	stop chan struct{}
+	// wait group
+	wg sync.WaitGroup
 	// context of job
 	ctx       context.Context
 	ctxCancel context.CancelFunc
@@ -51,11 +57,13 @@ func NewJob(id string, period, timeout, delay int, do func(context.Context) erro
 func (j *Job) Start(ctx context.Context) {
 	j.stateMux.Lock()
 	defer j.stateMux.Unlock()
-	if j.isStarted {
+	if j.isStarted || j.isRun {
 		return
 	}
 	j.isStarted = true
+	// don't forget call cancel
 	j.ctx, j.ctxCancel = context.WithCancel(ctx)
+	j.wg.Add(1)
 	go j.run()
 }
 
@@ -81,8 +89,40 @@ func (j *Job) Cancel() {
 	j.isStarted = false
 }
 
+// WG waits jop stopping (blocking)
+func (j *Job) WG() {
+	j.wg.Wait()
+}
+
+// IsRun checks job handler state
+func (j *Job) IsRun() bool {
+	var st bool
+	j.stateMux.Lock()
+	st = j.isRun
+	j.stateMux.Unlock()
+	return st
+}
+
+// IsDo checks job execution state
+func (j *Job) IsDo() bool {
+	var st bool
+	j.stateMux.Lock()
+	st = j.isDo
+	j.stateMux.Unlock()
+	return st
+}
+
 //
 func (j *Job) run() {
+	defer j.wg.Done()
+	defer func() {
+		j.stateMux.Lock()
+		j.isRun = false
+		j.stateMux.Unlock()
+	}()
+	j.stateMux.Lock()
+	j.isRun = true
+	j.stateMux.Unlock()
 
 	// delay running
 	dlTm := time.NewTimer(time.Millisecond * time.Duration(j.startDelay))
@@ -98,7 +138,16 @@ func (j *Job) run() {
 
 	// periodic run func, canceled by timeout
 	do := func() {
+		defer func() {
+			j.stateMux.Lock()
+			j.isDo = false
+			j.stateMux.Unlock()
+		}()
+		j.stateMux.Lock()
+		j.isDo = true
+		j.stateMux.Unlock()
 		log.Printf("job - %v, start", j.id)
+
 		var (
 			ctx    context.Context
 			cancel context.CancelFunc
