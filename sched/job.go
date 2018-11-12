@@ -2,7 +2,6 @@ package sched
 
 import (
 	"context"
-	"log"
 	"sync"
 	"time"
 )
@@ -39,6 +38,9 @@ type Job struct {
 
 	// function for execution in job
 	do func(context.Context) error
+
+	// error
+	err chan error
 }
 
 // NewJob inits new job
@@ -51,6 +53,7 @@ func NewJob(ctx context.Context, id string, period, timeout, delay int, do func(
 		stop:       make(chan struct{}, 1),
 		baseCtx:    ctx,
 		do:         do,
+		err:        make(chan error, 10),
 	}
 	return j
 }
@@ -120,6 +123,11 @@ func (j *Job) IsDo() bool {
 	return st
 }
 
+// Err errors chan
+func (j *Job) Err() <-chan error {
+	return j.err
+}
+
 //
 func (j *Job) run() {
 	defer j.wg.Done()
@@ -154,7 +162,6 @@ func (j *Job) run() {
 		j.stateMux.Lock()
 		j.isDo = true
 		j.stateMux.Unlock()
-		log.Printf("job - %v, start", j.id)
 
 		var (
 			ctx    context.Context
@@ -170,7 +177,7 @@ func (j *Job) run() {
 		// job executes
 		err := j.do(ctx)
 		if err != nil {
-			log.Printf("job %v running err - %v", j.id, err)
+			j.err <- err
 		}
 	}
 
