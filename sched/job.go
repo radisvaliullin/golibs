@@ -177,7 +177,7 @@ func (j *Job) run() {
 		// job executes
 		err := j.do(ctx)
 		if err != nil {
-			j.err <- err
+			j.err <- JobErr{id: j.id, err: err}
 		}
 	}
 
