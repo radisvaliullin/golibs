@@ -15,7 +15,7 @@ type JobErr struct {
 
 // Error interface method
 func (e JobErr) Error() string {
-	return fmt.Sprintf("job - %v: %v", e.id, e.err)
+	return fmt.Sprintf("job %v: %v", e.id, e.err)
 }
 
 // ID returns job err id

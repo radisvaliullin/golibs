@@ -23,13 +23,13 @@ type Job struct {
 	stateMux sync.Mutex
 	// start/stop trigger
 	isStarted bool
-	// handler statuse
+	// periodic runner statuse
 	isRun bool
-	// job active statuse
+	// job do statuse
 	isDo bool
 	// stop signal
 	stop chan struct{}
-	// wait group
+	// wait group (for job runner)
 	wg sync.WaitGroup
 	// context of job
 	baseCtx   context.Context
@@ -66,7 +66,7 @@ func (j *Job) Start(ctx context.Context) {
 		return
 	}
 	j.isStarted = true
-	// don't forget call cancel
+	// don't forget call cancel when stop/cancel runner
 	if ctx != nil {
 		j.ctx, j.ctxCancel = context.WithCancel(ctx)
 	} else if j.baseCtx != nil {
@@ -74,6 +74,7 @@ func (j *Job) Start(ctx context.Context) {
 	} else {
 		j.ctx, j.ctxCancel = context.WithCancel(context.Background())
 	}
+	j.isRun = true
 	j.wg.Add(1)
 	go j.run()
 }
@@ -107,24 +108,28 @@ func (j *Job) WG() {
 
 // IsRun checks job handler state
 func (j *Job) IsRun() bool {
-	var st bool
 	j.stateMux.Lock()
-	st = j.isRun
+	st := j.isRun
 	j.stateMux.Unlock()
 	return st
 }
 
 // IsDo checks job execution state
 func (j *Job) IsDo() bool {
-	var st bool
 	j.stateMux.Lock()
-	st = j.isDo
+	st := j.isDo
 	j.stateMux.Unlock()
 	return st
 }
 
-// Err errors chan
+// Err returns error chan
 func (j *Job) Err() <-chan error {
+	return j.err
+}
+
+// ErrClose closes error chan
+func (j *Job) ErrClose() <-chan error {
+	close(j.err)
 	return j.err
 }
 
@@ -136,9 +141,6 @@ func (j *Job) run() {
 		j.isRun = false
 		j.stateMux.Unlock()
 	}()
-	j.stateMux.Lock()
-	j.isRun = true
-	j.stateMux.Unlock()
 
 	// delay running
 	dlTm := time.NewTimer(time.Millisecond * time.Duration(j.startDelay))
@@ -159,9 +161,6 @@ func (j *Job) run() {
 			j.isDo = false
 			j.stateMux.Unlock()
 		}()
-		j.stateMux.Lock()
-		j.isDo = true
-		j.stateMux.Unlock()
 
 		var (
 			ctx    context.Context
@@ -185,10 +184,16 @@ func (j *Job) run() {
 	tk := time.NewTicker(time.Millisecond * time.Duration(j.period))
 	defer tk.Stop()
 
+	j.stateMux.Lock()
+	j.isDo = true
+	j.stateMux.Unlock()
 	do()
 	for {
 		select {
 		case <-tk.C:
+			j.stateMux.Lock()
+			j.isDo = true
+			j.stateMux.Unlock()
 			do()
 			continue
 		case <-j.ctx.Done():

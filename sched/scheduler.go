@@ -13,6 +13,10 @@ const (
 type Sched struct {
 	jsMux sync.Mutex
 	jobs  []*Job
+
+	//
+	err   chan error
+	errWG sync.WaitGroup
 }
 
 // New inits new scheduler
@@ -21,12 +25,20 @@ func New(js []*Job) (*Sched, error) {
 	if js == nil {
 		js = []*Job{}
 	}
+	// validate
 	err := jobsIDUniqValidate(js)
 	if err != nil {
 		return nil, err
 	}
+	// scheduler
 	s := &Sched{
 		jobs: js,
+		err:  make(chan error, 100),
+	}
+	// run job errors handler
+	for _, j := range js {
+		s.errWG.Add(1)
+		go s.joinJobErr(j.Err())
 	}
 	return s, nil
 }
@@ -50,6 +62,9 @@ func (s *Sched) AddJob(j *Job) error {
 		}
 	}
 	s.jobs = append(s.jobs, j)
+	// run job errors handler
+	s.errWG.Add(1)
+	go s.joinJobErr(j.Err())
 	return nil
 }
 
@@ -57,72 +72,70 @@ func (s *Sched) AddJob(j *Job) error {
 func (s *Sched) StartJob(id string) error {
 	s.jsMux.Lock()
 	defer s.jsMux.Unlock()
-	exist := false
 	for _, jb := range s.jobs {
 		if jb.id == id {
-			exist = true
 			jb.Start(nil)
 			return nil
 		}
 	}
-	if !exist {
-		return fmt.Errorf("%v: start job, job with id %v doesn't exist", pkgPref, id)
-	}
-	return nil
+	return fmt.Errorf("%v: start job, job with id %v doesn't exist", pkgPref, id)
 }
 
 // StopJob stops job by id
 func (s *Sched) StopJob(id string) error {
 	s.jsMux.Lock()
 	defer s.jsMux.Unlock()
-	exist := false
 	for _, jb := range s.jobs {
 		if jb.id == id {
-			exist = true
 			jb.Stop()
 			return nil
 		}
 	}
-	if !exist {
-		return fmt.Errorf("%v: stop job, job with id %v doesn't exist", pkgPref, id)
-	}
-	return nil
+	return fmt.Errorf("%v: stop job, job with id %v doesn't exist", pkgPref, id)
 }
 
 // CancelJob cancels job by id
 func (s *Sched) CancelJob(id string) error {
 	s.jsMux.Lock()
 	defer s.jsMux.Unlock()
-	exist := false
 	for _, jb := range s.jobs {
 		if jb.id == id {
-			exist = true
 			jb.Cancel()
 			return nil
 		}
 	}
-	if !exist {
-		return fmt.Errorf("%v: cancel job, job with id %v doesn't exist", pkgPref, id)
-	}
-	return nil
+	return fmt.Errorf("%v: cancel job, job with id %v doesn't exist", pkgPref, id)
 }
 
 // DelJob deletes job by id (job must be stopped or canceled)
 func (s *Sched) DelJob(id string) error {
 	s.jsMux.Lock()
 	defer s.jsMux.Unlock()
-	exist := false
 	for i, jb := range s.jobs {
 		if jb.id == id {
-			exist = true
+			if jb.isStarted || jb.isRun {
+				return fmt.Errorf("%v: delete job, job with id %v can't be started or runned", pkgPref, id)
+			}
+			jb.WG()
+			jb.ErrClose()
 			copy(s.jobs[i:], s.jobs[i+1:])
 			s.jobs[len(s.jobs)-1] = nil
 			s.jobs = s.jobs[:len(s.jobs)-1]
 			return nil
 		}
 	}
-	if !exist {
-		return fmt.Errorf("%v: delete job, job with id %v doesn't exist", pkgPref, id)
+	return fmt.Errorf("%v: delete job, job with id %v doesn't exist", pkgPref, id)
+}
+
+// Err returns error chan
+func (s *Sched) Err() <-chan error {
+	return s.err
+}
+
+//
+func (s *Sched) joinJobErr(jerr <-chan error) {
+	defer s.errWG.Done()
+	for e := range jerr {
+		s.err <- e
 	}
-	return nil
 }
