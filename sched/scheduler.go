@@ -107,6 +107,19 @@ func (s *Sched) CancelJob(id string) error {
 	return fmt.Errorf("%v: cancel job, job with id %v doesn't exist", pkgPref, id)
 }
 
+// JobWG job's wait group (blocking)
+func (s *Sched) JobWG(id string) error {
+	s.jsMux.Lock()
+	defer s.jsMux.Unlock()
+	for _, jb := range s.jobs {
+		if jb.id == id {
+			jb.WG()
+			return nil
+		}
+	}
+	return fmt.Errorf("%v: delete job, job with id %v doesn't exist", pkgPref, id)
+}
+
 // DelJob deletes job by id (job must be stopped or canceled)
 func (s *Sched) DelJob(id string) error {
 	s.jsMux.Lock()
@@ -116,7 +129,6 @@ func (s *Sched) DelJob(id string) error {
 			if jb.isStarted || jb.isRun {
 				return fmt.Errorf("%v: delete job, job with id %v can't be started or runned", pkgPref, id)
 			}
-			jb.WG()
 			jb.ErrClose()
 			copy(s.jobs[i:], s.jobs[i+1:])
 			s.jobs[len(s.jobs)-1] = nil
@@ -129,6 +141,17 @@ func (s *Sched) DelJob(id string) error {
 
 // Err returns error chan
 func (s *Sched) Err() <-chan error {
+	return s.err
+}
+
+// WG scheduler jobs error handler wait group (blocking)
+func (s *Sched) WG() {
+	s.errWG.Wait()
+}
+
+// ErrClose closes error
+func (s *Sched) ErrClose() <-chan error {
+	close(s.err)
 	return s.err
 }
 
